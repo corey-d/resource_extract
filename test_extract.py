@@ -53,9 +53,74 @@ class TestExtract(unittest.TestCase):
       resources = extract.find_resources(txt)
       self.assertEqual(len(expected), len(resources))
       for index, resource in enumerate(resources):
-        print(resource)
         self.assertEqual(expected[index], resource)
 
+  # test that the document class returns the correct text segments
+  # for given resource objects
+  def test_document(self):
+    text = '0123456789'
+    r1 = extract.resource('text', 'whole', 0, 10)
+    r2 = extract.resource('text', 'subsection', 2, 8)
+    data = {('text', 'whole') : (text[0:10], r1),
+            ('text', 'subsection') : (text[2:8], r2),
+            ('wrong', 'stillwrong') : (None, None)
+    }
+    doc = extract.document(text)
+    doc.add_resource(r2)
+    doc.add_resource(r1)
+
+    for (rtype, name), (expected_text, expected_resource) in data.items():
+      r = doc.get_resource(rtype, name)
+      self.assertEqual(expected_resource, r)
+      if not r:
+        continue
+      txt = doc.get_resource_text(r)
+      self.assertEqual(expected_text, txt)
+
+  # this is more of an integration test since it's testing a function
+  # that uses live classes and not mocks
+  def test_merge_document_into(self):
+    # expected (merged) : (generated txt, original text)
+    data = {'resource "a" "b" {aa}' : ('resource "a" "b" {aa}', 'resource "a" "b" {a}'),
+            'resource "a" "c" {c}' : ('resource "a" "c" {c}', 'resource "a" "c" {aaaaa}'),
+            '''
+            resource "aws" "preserved" {
+               description = "i should be the same"
+            }
+            resource "aws" "mushed" {
+              description  = "i came from the generated text"
+            }
+            resource "aws" "alsopreserved" {
+              description = "i should also be the same"
+            }
+            ''' :
+            (
+            '''
+            resource "aws" "mushed" {
+              description  = "i came from the generated text"
+            }
+            ''',
+            '''
+            resource "aws" "preserved" {
+               description = "i should be the same"
+            }
+            resource "aws" "mushed" {
+              description  = "i should be replaced"
+              name = "doomed"
+              thing = {name: "value"}
+            }
+            resource "aws" "alsopreserved" {
+              description = "i should also be the same"
+            }
+            ''')
+    }
+    for expected, (gen_text, orig_text) in data.items():
+      gen_doc = extract.document(gen_text)
+      orig_doc = extract.document(orig_text)
+      for doc in [gen_doc, orig_doc]:
+        for r in extract.find_resources(doc.txt):
+          doc.add_resource(r)
+      self.assertEqual(expected, extract.merge_document_into(gen_doc, orig_doc))
 
 if __name__ == '__main__':
   unittest.main()

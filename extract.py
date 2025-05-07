@@ -1,5 +1,7 @@
 import re
 
+# associate a resource type, resource name, and it's start and end indexes
+# in a flat text file. a named coordinate pair, if you will.
 class resource:
     def __init__(self, rtype: str, name: str, start: int, end: int):
         self.rtype = rtype
@@ -21,7 +23,8 @@ class resource:
     def __repr__(self):
         return f'rtype: {self.rtype}, name: {self.name}, start: {self.start}, end: {self.end}, len: {self.len}'
 
-
+# given a block of text at start index return index
+# of last found paired curley braces
 def find_last_brace(txt: str, start: int) -> int:
         i = start
         N = len(txt)
@@ -36,7 +39,7 @@ def find_last_brace(txt: str, start: int) -> int:
             i += 1
         return i
 
-
+# scan terraform txt for all resource blocks and return them as an array
 def find_resources(txt: str) -> list[resource]:
     # search up to the char right before opening {
     pattern = re.compile(r'\s*(resource)\s+(\"\w+\")\s+(\"[\w\-]+\")\s*')
@@ -50,6 +53,7 @@ def find_resources(txt: str) -> list[resource]:
         resources.append(r)
     return resources
 
+# associate terraform text with resource blocks
 class document:
     def __init__(self, txt: str):
         self.txt = txt
@@ -88,10 +92,8 @@ def merge_document_into(source: document, destination: document) -> str:
     # preserve non-replaced text
     # update index
     for s in source.resources:
-        print(f'S: {s}')
         # get new text from source, if
         newtext = source.get_resource_text(s)
-        print(f'N: {newtext}')
         if not newtext:
             # TODO: handle this error situation - source resource should be returning source text
             continue
@@ -108,12 +110,35 @@ def merge_document_into(source: document, destination: document) -> str:
     merged += destination.txt[index:]
     return merged
 
+def main(generated_filename, destination_filename, backup_destination):
+    gen_file = open(generated_filename, 'r')
+    gen_txt = gen_file.read()
+
+    gen_file.close()
+    dest_file = open(destination_filename, 'r+')
+    dest_txt = dest_file.read()
+    dest_file.seek(0)
+    dest_file.truncate(0)
+    if backup_destination:
+        with open(f'{destination_filename}.backup', 'w') as f:
+            f.write(dest_txt)
+
+    gen_doc = create_document(gen_txt)
+    dest_doc = create_document(dest_txt)
+    new_text = merge_document_into(gen_doc, dest_doc)
+    dest_file.write(new_text)
+    dest_file.close()
+
+
+
 
 if __name__ == '__main__':
-    f = open('orig.tf', 'r')
-    orig = create_document(f.read())
-    f.close()
-    f = open('generated.tf', 'r')
-    gen = create_document(f.read())
-    f.close()
-    print(merge_document_into(gen, orig))
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('generated', help='path to generated terraform file that will be the source of new resource definitions')
+    parser.add_argument('destination', help='path to file that will have matching resources from generated file replace with')
+    parser.add_argument('-b', '--backup', action='store_true', help='create backup of destination file')
+
+    args = parser.parse_args()
+    main(args.generated, args.destination, args.backup)
