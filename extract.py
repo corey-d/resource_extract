@@ -1,3 +1,5 @@
+#! /usr/bin/env python3
+
 import re
 
 # associate a resource type, resource name, and it's start and end indexes
