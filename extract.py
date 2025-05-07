@@ -1,66 +1,119 @@
 import re
 
-txt = '''
-resource "aws_foo" "bar" {
-asdf a
-asdfasdfa 
-adsfadf
-}
-
-resource "aws_foo" "baz" {
- { asdfadf 
-    { asdfas dasfasfd a
-    }
- }
-}
-
-resource "azure_bar" "gar_bar3_org" {
-
-
-}
-'''
-
 class resource:
-    def __init__(self, rtype: str, name: str, start: int, match_end: int):
+    def __init__(self, rtype: str, name: str, start: int, end: int):
         self.rtype = rtype
         self.name = name
         self.start = start
-        self.match_end = match_end
-        self.end = None
-        self.len = None
+        self.end = end
+        self.len = end - start + 1
 
-    def find_end(self, txt: str):
-        i = self.match_end
+    def __eq__(self, other):
+        return (self.rtype == other.rtype and
+            self.name == other.name and
+            self.start == other.start and
+            self.end == other.end and
+            self.len == other.len)
+
+    def __hash__(self):
+        return hash(f'{id(self)}')
+
+    def __repr__(self):
+        return f'rtype: {self.rtype}, name: {self.name}, start: {self.start}, end: {self.end}, len: {self.len}'
+
+
+def find_last_brace(txt: str, start: int) -> int:
+        i = start
         N = len(txt)
-        while txt[i].isspace() and i < N:
-            i += 1
-        b = '{'
-        e = '}'
-        
-        count = int(txt[i] == b)
-        while count > 0 and i < N:
-            i += 1
-            if txt[i] == b:
+        count = 0
+        while i < N and count >= 0:
+            if txt[i] == '{':
                 count += 1
-                continue
-            if txt[i] == e:
+            elif txt[i] == '}':
                 count -= 1
-                continue
-        if i == N  and txt[i - 1] != e:
-            self.end = None
-            self.len = None
-            return
-        self.end = i + 1
-        self.len = self.end - self.start + 1
+                if count == 0:
+                    break
+            i += 1
+        return i
 
 
 def find_resources(txt: str) -> list[resource]:
+    # search up to the char right before opening {
     pattern = re.compile(r'\s*(resource)\s+(\"\w+\")\s+(\"[\w\-]+\")\s*')
     resources = []
     for match in pattern.finditer(txt):
-        r = resource(match.group(1), match.group(2), match.start(), match.end())
-        r.find_end(txt)
+        # this returns the starting index from the first group (word resource) within the match
+        # this effectively skips any whitespace objects found prior to the resource word.
+        start = match.start(1)
+        end = find_last_brace(txt, start)
+        r = resource(match.group(2), match.group(3), start, end)
         resources.append(r)
     return resources
 
-rs = find_resources(txt)
+class document:
+    def __init__(self, txt: str):
+        self.txt = txt
+        self.resources = []
+
+    def add_resource(self, res):
+        self.resources.append(res)
+
+    def get_resource(self, rtype, name: str) -> resource:
+        for r in self.resources:
+            if r.rtype == rtype and r.name == name:
+                 return r
+        return None
+
+    def get_resource_text(self, res: resource):
+        r = self.get_resource(res.rtype, res.name)
+        if not r:
+            return ''
+        return self.txt[r.start:r.end]
+
+
+
+def create_document(txt: str) -> document:
+    doc = document(txt)
+    for res in find_resources(txt):
+        doc.add_resource(res)
+    return doc
+
+# source = generated, destionation = original
+def merge_document_into(source: document, destination: document) -> str:
+    merged = ''
+    index = 0
+    # get resources that need replacing from destination document
+    # get replacment text from source document
+    # copy replacement text from source to dest
+    # preserve non-replaced text
+    # update index
+    for s in source.resources:
+        print(f'S: {s}')
+        # get new text from source, if
+        newtext = source.get_resource_text(s)
+        print(f'N: {newtext}')
+        if not newtext:
+            # TODO: handle this error situation - source resource should be returning source text
+            continue
+
+        # get indices of preserved text block
+        d = destination.get_resource(s.rtype, s.name)
+        # copy in perserved text, up to start of that resource's block
+        merged += destination.txt[index:d.start]
+        # replace that resource block with new text
+        merged += newtext
+        # update index to end of original block to get next address of preserved text
+        index += d.end
+    # copy the rest
+    merged += destination.txt[index:]
+    return merged
+
+
+if __name__ == '__main__':
+    f = open('orig.tf', 'r')
+    orig = create_document(f.read())
+    f.close()
+    f = open('generated.tf', 'r')
+    gen = create_document(f.read())
+    f.close()
+    print(merge_document_into(gen, orig))
