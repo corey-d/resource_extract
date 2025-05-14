@@ -102,6 +102,8 @@ def merge_document_into(source: document, destination: document) -> str:
 
         # get indices of preserved text block
         d = destination.get_resource(s.rtype, s.name)
+        if not d:
+            continue
         # copy in perserved text, up to start of that resource's block
         merged += destination.txt[index:d.start]
         # replace that resource block with new text
